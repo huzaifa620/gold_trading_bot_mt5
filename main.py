@@ -2,66 +2,90 @@ import time
 import os
 import MetaTrader5 as mt5
 from dotenv import load_dotenv
-from services.mt5_client import fetch_price_history, initialize_mt5, shutdown_mt5, get_gold_price, place_order, get_account_info
+import pandas as pd
+from services.mt5_client import (
+    fetch_price_history,
+    initialize_mt5,
+    shutdown_mt5,
+    get_account_info,
+    place_order,
+    close_all_trades,
+)
 from strategies.simple_ma import trade_decision
-from utils.logger import log
+from utils.risk import calculate_lot_size
+from utils.trade_logger import log_trade
 
-# Load credentials from .env
 load_dotenv()
 LOGIN = int(os.getenv("LOGIN"))
 PASSWORD = os.getenv("PASSWORD")
 SERVER = os.getenv("SERVER")
 
-log.info("🚀 Starting Gold Auto-Trading Bot...")
-log.info("🔌 Attempting to connect to MetaTrader 5...")
+symbol = "XAUUSD"
 
+print("🚀 Starting Gold Bot...")
 if not initialize_mt5(login=LOGIN, password=PASSWORD, server=SERVER):
-    log.error("❌ MT5 initialization failed. Check login, password, or terminal state.")
+    print("❌ MT5 initialization failed.")
     exit(1)
-
-log.info("✅ Connected to MT5 successfully.")
-
 
 account = get_account_info()
 if account:
-    log.info(f"👤 Account Balance: {account['balance']} {account['currency']}")
-    log.info(f"📈 Free Margin: {account['margin_free']}")
-    log.info(f"📊 Leverage: {account['leverage']}x")
+    balance = account["balance"]
+else:
+    print("❌ Could not fetch account info.")
+    exit(1)
 
-
-price_history = fetch_price_history("XAUUSD", count=200, timeframe=mt5.TIMEFRAME_M5)
-log.info(f"📚 Loaded {len(price_history)} historical prices for strategy seed.")
-log.info("⏳ Starting price monitoring loop every 60 seconds...")
+current_trend = None  # "BUY" or "SELL"
 
 try:
     while True:
-        price = get_gold_price()
-        if price:
-            log.info(f"📉 Live Gold Price (XAUUSD Ask): {price}")
-            price_history.append(price)
+        df = fetch_price_history(symbol, count=100, timeframe=mt5.TIMEFRAME_M5)
+        if df is None or df.empty or len(df) < 30:
+            print("⚠️ Not enough price data.")
+            time.sleep(60)
+            continue
 
-            if len(price_history) > 100:
-                price_history.pop(0)
+        current_price = df["close"].iloc[-1]
+        signal, stop_loss_price = trade_decision(df)
 
-            decision = trade_decision(price_history)
-            log.info(f"📊 Strategy Decision: {decision}")
+        if signal in ["BUY", "SELL"] and stop_loss_price:
+            if current_trend and signal != current_trend:
+                print(f"🔄 Trend changed: closing all {current_trend} trades.")
+                close_all_trades(opposite=signal)
 
-            if decision in ["BUY", "SELL"]:
-                log.info(f"📤 Placing {decision} order at price: {price}")
-                result = place_order("XAUUSD", decision)
-                log.info(f"✅ Order placed result: {result}")
+            sl_distance = abs(current_price - stop_loss_price)
+            volume = calculate_lot_size(
+                sl_points=sl_distance, price=current_price, balance=balance
+            )
+
+            print(
+                f"📥 Signal: {signal} | Price: {current_price:.2f} | SL: {stop_loss_price:.2f} | Volume: {volume}"
+            )
+
+            result = place_order(
+                symbol, signal, volume=volume, sl_points=sl_distance, tp_points=0
+            )
+            if result and result.retcode == mt5.TRADE_RETCODE_DONE:
+                print(f"✅ {signal} order placed.")
+                current_trend = signal
+
+                # Log to CSV
+                log_trade(
+                    order_type=signal,
+                    price=current_price,
+                    stop_loss=stop_loss_price,
+                    lot_size=volume,
+                    order_id=result.order,
+                )
             else:
-                log.info("⏱ Waiting for signal...")
+                print(f"❌ Failed to place order: {result}")
 
         else:
-            log.warning("⚠️ Could not fetch gold price from MT5")
+            print("⏱ No valid signal. Waiting...")
 
-        log.info("🔁 Sleeping for 60 seconds...\n")
         time.sleep(60)
 
 except KeyboardInterrupt:
-    log.info("🛑 Bot stopped manually via keyboard.")
-
+    print("🛑 Bot stopped manually.")
 finally:
     shutdown_mt5()
-    log.info("🔒 MT5 connection closed.")
+    print("🔒 Disconnected from MT5.")
