@@ -11,7 +11,7 @@ from services.mt5_client import (
     place_order,
     close_all_trades,
 )
-from strategies.simple_ma import trade_decision
+from strategies.supertrend_strategy import trade_decision
 from utils.risk import calculate_lot_size
 from utils.trade_logger import log_trade
 
@@ -75,6 +75,7 @@ try:
                     stop_loss=stop_loss_price,
                     lot_size=volume,
                     order_id=result.order,
+                    balance=balance,
                 )
             else:
                 print(f"❌ Failed to place order: {result}")
@@ -82,6 +83,7 @@ try:
         else:
             print("⏱ No valid signal. Waiting...")
 
+        print("🕒 Next market check in 60 seconds...\n" + "-" * 50)
         time.sleep(60)
 
 except KeyboardInterrupt:

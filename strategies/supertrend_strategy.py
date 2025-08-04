@@ -19,8 +19,11 @@ def calculate_supertrend(df, atr_period=10, multiplier=3):
         curr_close = df["close"][i]
         if in_uptrend and curr_close < df["lower_band"][i]:
             in_uptrend = False
+            print(f"🔻 Supertrend switched to SELL at index {i}")
         elif not in_uptrend and curr_close > df["upper_band"][i]:
             in_uptrend = True
+            print(f"🔺 Supertrend switched to BUY at index {i}")
+
         df.at[i, "supertrend"] = (
             df["lower_band"][i] if in_uptrend else df["upper_band"][i]
         )
@@ -31,6 +34,7 @@ def calculate_supertrend(df, atr_period=10, multiplier=3):
 
 def trade_decision(df: pd.DataFrame) -> tuple:
     if len(df) < 30:
+        print("⚠️ Not enough data for decision-making.")
         return "WAIT", None
 
     df = calculate_supertrend(df)
@@ -41,9 +45,15 @@ def trade_decision(df: pd.DataFrame) -> tuple:
     trend = "BUY" if latest["in_uptrend"] else "SELL"
     ema_signal = "BUY" if latest["ema5"] > latest["ema20"] else "SELL"
 
+    print(f"📉 Supertrend Direction: {trend}")
+    print(f"📈 EMA Crossover Signal: {ema_signal}")
+
     if trend == "BUY" and ema_signal == "BUY":
+        print("✅ Final Decision: BUY")
         return "BUY", latest["supertrend"]
     elif trend == "SELL" and ema_signal == "SELL":
+        print("✅ Final Decision: SELL")
         return "SELL", latest["supertrend"]
     else:
+        print("⏸ Final Decision: WAIT (No confirmation)")
         return "WAIT", None

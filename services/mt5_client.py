@@ -2,6 +2,8 @@ import MetaTrader5 as mt5
 from MetaTrader5 import copy_rates_from_pos, TIMEFRAME_M1
 import pandas as pd
 
+from utils.trade_logger import close_trade
+
 
 def initialize_mt5(login: int, password: str, server: str) -> bool:
     return mt5.initialize(server=server, login=login, password=password)
@@ -34,15 +36,34 @@ def place_order(
         print(f"⚠️ Symbol {symbol} not found or not visible.")
         return None
 
-    price = (
-        mt5.symbol_info_tick(symbol).ask
-        if action == "BUY"
-        else mt5.symbol_info_tick(symbol).bid
-    )
-    deviation = 20
+    tick = mt5.symbol_info_tick(symbol)
+    if tick is None:
+        print(f"⚠️ Failed to fetch tick for {symbol}")
+        return None
 
+    price = tick.ask if action == "BUY" else tick.bid
+    deviation = 20
+    point = symbol_info.point
+
+    # Get broker-defined minimum stop level (converted from points to price distance)
+    stop_level = symbol_info.trade_stops_level * point
+    min_distance = max(stop_level, 0.5)  # fallback if stop level is zero
+
+    # Compute SL and TP from input point values
     sl = price - sl_points if action == "BUY" else price + sl_points
     tp = price + tp_points if action == "BUY" else price - tp_points
+
+    # Ensure SL and TP meet minimum distance requirement
+    if action == "BUY":
+        if (price - sl) < min_distance:
+            sl = price - min_distance
+        if (tp - price) < min_distance:
+            tp = price + min_distance
+    else:  # SELL
+        if (sl - price) < min_distance:
+            sl = price + min_distance
+        if (price - tp) < min_distance:
+            tp = price - min_distance
 
     request = {
         "action": mt5.TRADE_ACTION_DEAL,
@@ -62,6 +83,10 @@ def place_order(
     result = mt5.order_send(request)
     if result.retcode != mt5.TRADE_RETCODE_DONE:
         print(f"❌ Order failed: {result.retcode} - {result.comment}")
+        print(f"❌ Full response: {result}")
+    else:
+        print(f"✅ Order placed successfully! Order ID: {result.order}")
+
     return result
 
 
@@ -100,44 +125,49 @@ def close_all_trades(opposite="SELL", symbol="XAUUSD"):
     )
 
     positions = mt5.positions_get(symbol=symbol)
-    if positions is None:
-        print("❌ Failed to retrieve positions.")
+
+    if positions is None or len(positions) == 0:
+        print("⚠️ No open positions to close.")
         return
 
     for pos in positions:
-        if pos.type == position_type:
-            ticket = pos.ticket
-            volume = pos.volume
-            price = (
-                mt5.symbol_info_tick(symbol).bid
-                if pos.type == mt5.POSITION_TYPE_BUY
-                else mt5.symbol_info_tick(symbol).ask
+        position_type = "BUY" if pos.type == mt5.ORDER_TYPE_BUY else "SELL"
+
+        if opposite and position_type != opposite:
+            print(
+                f"⏩ Skipping {position_type} position as it doesn't match '{opposite}' signal."
             )
+            continue
 
-            close_type = (
-                mt5.ORDER_TYPE_SELL
-                if pos.type == mt5.POSITION_TYPE_BUY
-                else mt5.ORDER_TYPE_BUY
+        close_type = (
+            mt5.ORDER_TYPE_SELL
+            if pos.type == mt5.ORDER_TYPE_BUY
+            else mt5.ORDER_TYPE_BUY
+        )
+        price = (
+            mt5.symbol_info_tick(symbol).bid
+            if close_type == mt5.ORDER_TYPE_SELL
+            else mt5.symbol_info_tick(symbol).ask
+        )
+
+        request = {
+            "action": mt5.TRADE_ACTION_DEAL,
+            "symbol": symbol,
+            "volume": pos.volume,
+            "type": close_type,
+            "price": price,
+            "deviation": 20,
+            "magic": 234000,
+            "comment": "Auto-close via trend reversal",
+            "type_time": mt5.ORDER_TIME_GTC,
+            "type_filling": mt5.ORDER_FILLING_IOC,
+        }
+
+        result = mt5.order_send(request)
+        if result.retcode == mt5.TRADE_RETCODE_DONE:
+            print(f"✅ Closed {position_type} position | Order ID: {result.order}")
+            close_trade(order_id=pos.ticket, close_price=price)
+        else:
+            print(
+                f"❌ Failed to close {position_type} position: {result.retcode} - {result.comment}"
             )
-
-            request = {
-                "action": mt5.TRADE_ACTION_DEAL,
-                "symbol": symbol,
-                "volume": volume,
-                "type": close_type,
-                "position": ticket,
-                "price": price,
-                "deviation": 20,
-                "magic": 234000,
-                "comment": "Auto-close on trend reversal",
-                "type_time": mt5.ORDER_TIME_GTC,
-                "type_filling": mt5.ORDER_FILLING_IOC,
-            }
-
-            result = mt5.order_send(request)
-            if result and result.retcode == mt5.TRADE_RETCODE_DONE:
-                print(
-                    f"✅ Closed trade {ticket} ({'BUY' if pos.type == 0 else 'SELL'}) at price {price}"
-                )
-            else:
-                print(f"❌ Failed to close trade {ticket}: {result}")
