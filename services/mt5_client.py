@@ -1,6 +1,8 @@
 import MetaTrader5 as mt5
 import pandas as pd
 
+from utils.trade_logger import close_trade
+
 
 def initialize_mt5(login, password, server):
     mt5.shutdown()
@@ -105,10 +107,9 @@ def close_all_trades(opposite_type, symbol="XAUUSD"):
     )
     positions = mt5.positions_get(symbol=symbol)
     if not positions:
-        print("⚠️ No positions to close.")
+        print(f"📭 No open positions to close for {symbol}")
         return
 
-    print(f"🔁 Closing all {opposite_type} positions for {symbol}...")
     for pos in positions:
         if pos.type != target_position_type:
             continue
@@ -131,19 +132,19 @@ def close_all_trades(opposite_type, symbol="XAUUSD"):
             "type_filling": mt5.ORDER_FILLING_IOC,
             "position": pos.ticket,
         }
+
         result = mt5.order_send(request)
         if result.retcode == mt5.TRADE_RETCODE_DONE:
             print(f"✅ Closed position #{pos.ticket} at price {price}")
+            close_trade(order_id=pos.ticket, close_price=price)  # ✅ log to CSV
         else:
-            print(
-                f"❌ Failed to close position #{pos.ticket}: {result.retcode} - {result.comment}"
-            )
+            print(f"❌ Failed to close position #{pos.ticket}: {result.comment}")
 
 
-def close_one_trade(symbol="XAUUSD", target_type=mt5.POSITION_TYPE_BUY):
+def close_one_trade(symbol, target_type):
     positions = mt5.positions_get(symbol=symbol)
     if not positions:
-        print("⚠️ No open positions to close.")
+        print("⚠️ No open positions found.")
         return False
 
     for pos in positions:
@@ -155,6 +156,7 @@ def close_one_trade(symbol="XAUUSD", target_type=mt5.POSITION_TYPE_BUY):
             if target_type == mt5.POSITION_TYPE_BUY
             else mt5.ORDER_TYPE_BUY
         )
+
         price = (
             mt5.symbol_info_tick(symbol).bid
             if close_type == mt5.ORDER_TYPE_SELL
@@ -169,7 +171,7 @@ def close_one_trade(symbol="XAUUSD", target_type=mt5.POSITION_TYPE_BUY):
             "price": price,
             "deviation": 20,
             "magic": 234000,
-            "comment": "Close one opposite trade",
+            "comment": "Auto-close one trade",
             "type_time": mt5.ORDER_TIME_GTC,
             "type_filling": mt5.ORDER_FILLING_IOC,
             "position": pos.ticket,
@@ -177,10 +179,12 @@ def close_one_trade(symbol="XAUUSD", target_type=mt5.POSITION_TYPE_BUY):
 
         result = mt5.order_send(request)
         if result.retcode == mt5.TRADE_RETCODE_DONE:
-            print(f"✅ Successfully closed trade #{pos.ticket}")
+            print(f"✅ Closed position #{pos.ticket} at {price:.2f}")
+            close_trade(order_id=pos.ticket, close_price=price)  # ✅ log to CSV
             return True
         else:
-            print(
-                f"❌ Failed to close trade #{pos.ticket}: {result.retcode} - {result.comment}"
-            )
+            print(f"❌ Failed to close #{pos.ticket}: {result.comment}")
+            return False
+
+    print("⚠️ No matching trade to close.")
     return False
