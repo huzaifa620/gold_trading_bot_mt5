@@ -1,59 +1,72 @@
 import pandas as pd
-from ta.volatility import AverageTrueRange
-from ta.trend import EMAIndicator
 
 
-def calculate_supertrend(df, atr_period=10, multiplier=3):
-    df = df.copy()
-    atr = AverageTrueRange(
-        high=df["high"], low=df["low"], close=df["close"], window=atr_period
-    ).average_true_range()
+def calculate_atr(df, period):
+    high_low = df["high"] - df["low"]
+    high_close = (df["high"] - df["close"].shift()).abs()
+    low_close = (df["low"] - df["close"].shift()).abs()
+
+    tr = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
+    atr = tr.rolling(window=period).mean()
+    return atr
+
+
+def calculate_supertrend(df, period=10, multiplier=3):
+    atr = calculate_atr(df, period)
     hl2 = (df["high"] + df["low"]) / 2
+    upperband = hl2 + (multiplier * atr)
+    lowerband = hl2 - (multiplier * atr)
 
-    df["upper_band"] = hl2 + (multiplier * atr)
-    df["lower_band"] = hl2 - (multiplier * atr)
-    df["supertrend"] = pd.Series(index=df.index, dtype="float64")
+    supertrend = [False] * len(df)
     in_uptrend = True
 
     for i in range(1, len(df)):
-        curr_close = df["close"][i]
-        if in_uptrend and curr_close < df["lower_band"][i]:
-            in_uptrend = False
-            print(f"🔻 Supertrend switched to SELL at index {i}")
-        elif not in_uptrend and curr_close > df["upper_band"][i]:
+        if df["close"][i] > upperband[i - 1]:
             in_uptrend = True
-            print(f"🔺 Supertrend switched to BUY at index {i}")
+        elif df["close"][i] < lowerband[i - 1]:
+            in_uptrend = False
+        else:
+            if in_uptrend and lowerband[i] < lowerband[i - 1]:
+                lowerband[i] = lowerband[i - 1]
+            if not in_uptrend and upperband[i] > upperband[i - 1]:
+                upperband[i] = upperband[i - 1]
 
-        df.at[i, "supertrend"] = (
-            df["lower_band"][i] if in_uptrend else df["upper_band"][i]
-        )
+        supertrend[i] = in_uptrend
 
-    df["in_uptrend"] = df["close"] > df["supertrend"]
+    df["supertrend"] = supertrend
+    df["supertrend_upper"] = upperband
+    df["supertrend_lower"] = lowerband
+
     return df
 
 
-def trade_decision(df: pd.DataFrame) -> tuple:
-    if len(df) < 30:
-        print("⚠️ Not enough data for decision-making.")
-        return "WAIT", None
+def calculate_ema(df, period):
+    return df["close"].ewm(span=period, adjust=False).mean()
 
+
+def trade_decision(df):
     df = calculate_supertrend(df)
-    df["ema5"] = EMAIndicator(close=df["close"], window=5).ema_indicator()
-    df["ema20"] = EMAIndicator(close=df["close"], window=20).ema_indicator()
+    ema5 = calculate_ema(df, 5)
+    ema20 = calculate_ema(df, 20)
 
-    latest = df.iloc[-1]
-    trend = "BUY" if latest["in_uptrend"] else "SELL"
-    ema_signal = "BUY" if latest["ema5"] > latest["ema20"] else "SELL"
+    latest_close = df["close"].iloc[-1]
+    in_uptrend = df["supertrend"].iloc[-1]
+    ema5_latest = ema5.iloc[-1]
+    ema20_latest = ema20.iloc[-1]
 
-    print(f"📉 Supertrend Direction: {trend}")
-    print(f"📈 EMA Crossover Signal: {ema_signal}")
+    print(
+        f"📊 Price: {latest_close:.2f} | EMA5: {ema5_latest:.2f} | EMA20: {ema20_latest:.2f} | Trend: {'UP' if in_uptrend else 'DOWN'}"
+    )
 
-    if trend == "BUY" and ema_signal == "BUY":
-        print("✅ Final Decision: BUY")
-        return "BUY", latest["supertrend"]
-    elif trend == "SELL" and ema_signal == "SELL":
-        print("✅ Final Decision: SELL")
-        return "SELL", latest["supertrend"]
+    # EMA + Supertrend confirmation
+    if in_uptrend and ema5_latest > ema20_latest:
+        sl = df["supertrend_lower"].iloc[-1]
+        print(f"✅ BUY signal confirmed. Stop loss at {sl:.2f}")
+        return "BUY", sl
+    elif not in_uptrend and ema5_latest < ema20_latest:
+        sl = df["supertrend_upper"].iloc[-1]
+        print(f"✅ SELL signal confirmed. Stop loss at {sl:.2f}")
+        return "SELL", sl
     else:
-        print("⏸ Final Decision: WAIT (No confirmation)")
-        return "WAIT", None
+        print("❌ Signal rejected due to EMA mismatch with trend.")
+        return None, None
