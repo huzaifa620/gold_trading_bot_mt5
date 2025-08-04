@@ -1,8 +1,10 @@
+import csv
+import os
 import MetaTrader5 as mt5
 from MetaTrader5 import copy_rates_from_pos, TIMEFRAME_M1
 import pandas as pd
 
-from utils.trade_logger import close_trade
+from utils.trade_logger import LOG_FILE, close_trade
 
 
 def initialize_mt5(login: int, password: str, server: str) -> bool:
@@ -115,35 +117,28 @@ def get_account_info():
     }
 
 
-def close_all_trades(opposite="SELL", symbol="XAUUSD"):
+def close_all_trades(opposite_type="SELL", symbol="XAUUSD"):
     """
-    Closes all open positions in the opposite direction to the new signal.
-    For example, if signal is "SELL", it will close all existing BUY trades.
+    Closes all open trades that are opposite to the current signal (BUY/SELL).
     """
-    position_type = (
-        mt5.POSITION_TYPE_BUY if opposite == "SELL" else mt5.POSITION_TYPE_SELL
+    close_type = mt5.ORDER_TYPE_SELL if opposite_type == "BUY" else mt5.ORDER_TYPE_BUY
+    target_position_type = (
+        mt5.POSITION_TYPE_BUY if opposite_type == "SELL" else mt5.POSITION_TYPE_SELL
     )
 
     positions = mt5.positions_get(symbol=symbol)
-
-    if positions is None or len(positions) == 0:
+    print(f"🔍 Found {len(positions)} open positions for {symbol}.")
+    if not positions:
         print("⚠️ No open positions to close.")
         return
 
     for pos in positions:
-        position_type = "BUY" if pos.type == mt5.ORDER_TYPE_BUY else "SELL"
-
-        if opposite and position_type != opposite:
+        if pos.type != target_position_type:
             print(
-                f"⏩ Skipping {position_type} position as it doesn't match '{opposite}' signal."
+                f"⏩ Skipping position #{pos.ticket} | Type: {pos.type} (Not matching target)"
             )
             continue
 
-        close_type = (
-            mt5.ORDER_TYPE_SELL
-            if pos.type == mt5.ORDER_TYPE_BUY
-            else mt5.ORDER_TYPE_BUY
-        )
         price = (
             mt5.symbol_info_tick(symbol).bid
             if close_type == mt5.ORDER_TYPE_SELL
@@ -165,9 +160,91 @@ def close_all_trades(opposite="SELL", symbol="XAUUSD"):
 
         result = mt5.order_send(request)
         if result.retcode == mt5.TRADE_RETCODE_DONE:
-            print(f"✅ Closed {position_type} position | Order ID: {result.order}")
+            print(
+                f"✅ Closed position #{pos.ticket} | Volume: {pos.volume} at price {price}"
+            )
             close_trade(order_id=pos.ticket, close_price=price)
         else:
             print(
-                f"❌ Failed to close {position_type} position: {result.retcode} - {result.comment}"
+                f"❌ Failed to close position #{pos.ticket} | Retcode: {result.retcode} - {result.comment}"
             )
+
+
+def get_open_positions(symbol="XAUUSD", order_type=None):
+    """
+    Fetch all open positions for the specified symbol.
+    """
+    positions = mt5.positions_get(symbol=symbol)
+    if positions is None:
+        return []
+    if order_type is not None:
+        return [pos for pos in positions if pos.type == order_type]
+    return list(positions)
+
+
+def close_one_trade(symbol="XAUUSD", target_type=mt5.POSITION_TYPE_BUY):
+    """
+    Closes one trade of the specified position type (BUY/SELL).
+    Returns the closed order ticket ID or None if nothing was closed.
+    """
+    print(
+        f"🔍 Attempting to close one {'BUY' if target_type == mt5.POSITION_TYPE_BUY else 'SELL'} trade for {symbol}..."
+    )
+
+    positions = get_open_positions(symbol)
+    print(f"📊 Found {len(positions)} open position(s) for {symbol}.")
+
+    for pos in positions:
+        print(
+            f"➡️ Checking position #{pos.ticket}: type={pos.type}, volume={pos.volume}"
+        )
+        if pos.type == target_type:
+            print(f"🛑 Match found: Preparing to close position #{pos.ticket}...")
+
+            close_type = (
+                mt5.ORDER_TYPE_SELL
+                if pos.type == mt5.POSITION_TYPE_BUY
+                else mt5.ORDER_TYPE_BUY
+            )
+            price = (
+                mt5.symbol_info_tick(symbol).bid
+                if close_type == mt5.ORDER_TYPE_SELL
+                else mt5.symbol_info_tick(symbol).ask
+            )
+            print(
+                f"💰 Close order type: {'SELL' if close_type == mt5.ORDER_TYPE_SELL else 'BUY'}, Price: {price}"
+            )
+
+            request = {
+                "action": mt5.TRADE_ACTION_DEAL,
+                "symbol": symbol,
+                "volume": pos.volume,
+                "type": close_type,
+                "price": price,
+                "deviation": 20,
+                "magic": 234000,
+                "comment": "Auto-close single opposite",
+                "type_time": mt5.ORDER_TIME_GTC,
+                "type_filling": mt5.ORDER_FILLING_IOC,
+                "position": pos.ticket,
+            }
+
+            print(f"📤 Sending close request for position #{pos.ticket}...")
+            result = mt5.order_send(request)
+
+            if result.retcode == mt5.TRADE_RETCODE_DONE:
+                print(f"✅ Successfully closed trade #{pos.ticket} (type: {pos.type})")
+                return pos.ticket
+            else:
+                print(
+                    f"❌ Failed to close trade #{pos.ticket}: Retcode={result.retcode}, Comment='{result.comment}'"
+                )
+        else:
+            print(
+                f"⏭️ Skipping position #{pos.ticket}, not a {'BUY' if target_type == mt5.POSITION_TYPE_BUY else 'SELL'}."
+            )
+
+    print(
+        f"⚠️ No {'BUY' if target_type == mt5.POSITION_TYPE_BUY else 'SELL'} trades were closed."
+    )
+    return None
