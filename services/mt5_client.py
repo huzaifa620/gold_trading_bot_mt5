@@ -136,7 +136,7 @@ def close_all_trades(opposite_type, symbol="XAUUSD"):
         result = mt5.order_send(request)
         if result.retcode == mt5.TRADE_RETCODE_DONE:
             print(f"✅ Closed position #{pos.ticket} at price {price}")
-            close_trade(order_id=pos.ticket, close_price=price)  # ✅ log to CSV
+            close_trade(order_id=pos.ticket, close_price=price, reason="Mass Close - New Signal")
         else:
             print(f"❌ Failed to close position #{pos.ticket}: {result.comment}")
 
@@ -180,7 +180,7 @@ def close_one_trade(symbol, target_type):
         result = mt5.order_send(request)
         if result.retcode == mt5.TRADE_RETCODE_DONE:
             print(f"✅ Closed position #{pos.ticket} at {price:.2f}")
-            close_trade(order_id=pos.ticket, close_price=price)  # ✅ log to CSV
+            close_trade(order_id=pos.ticket, close_price=price, reason="Trend Reversal - Signal Flip")
             return True
         else:
             print(f"❌ Failed to close #{pos.ticket}: {result.comment}")

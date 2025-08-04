@@ -11,10 +11,12 @@ LOG_FIELDS = [
     "lot_size",
     "order_id",
     "balance",
-    "status",
-    "close_price",
-    "close_time",
+    "status",         # OPEN or CLOSED
+    "close_price",    # set when CLOSED
+    "close_time",     # set when CLOSED
+    "close_reason",   # NEW FIELD
 ]
+
 
 
 def initialize_log():
@@ -40,11 +42,15 @@ def log_trade(order_type, price, stop_loss, lot_size, order_id=None, balance=Non
                 "status": "OPEN",
                 "close_price": "",
                 "close_time": "",
+                "close_reason": "",
             }
         )
 
 
-def close_trade(order_id, close_price):
+def close_trade(order_id, close_price, reason=""):
+    """
+    Marks the given order as CLOSED in the CSV and logs close price, time, and reason.
+    """
     if not os.path.exists(LOG_FILE):
         print("⚠️ Log file not found. Cannot update trade.")
         return
@@ -57,8 +63,9 @@ def close_trade(order_id, close_price):
         for row in reader:
             if row["order_id"] == str(order_id) and row["status"] == "OPEN":
                 row["status"] = "CLOSED"
-                row["close_price"] = round(close_price, 3)
+                row["close_price"] = round(close_price, 2)
                 row["close_time"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                row["close_reason"] = reason
                 updated = True
             rows.append(row)
 
@@ -67,6 +74,6 @@ def close_trade(order_id, close_price):
             writer = csv.DictWriter(file, fieldnames=LOG_FIELDS)
             writer.writeheader()
             writer.writerows(rows)
-        print(f"✅ Trade {order_id} marked as CLOSED.")
+        print(f"✅ Trade {order_id} marked as CLOSED. Reason: {reason}")
     else:
         print(f"⚠️ Trade {order_id} not found or already closed.")
