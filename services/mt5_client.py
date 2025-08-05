@@ -33,13 +33,14 @@ def get_account_info():
     return None
 
 
-def fetch_price_history(symbol, count=100, timeframe=mt5.TIMEFRAME_M1):
+def fetch_price_history(symbol, count=300, timeframe=mt5.TIMEFRAME_M5):
     rates = mt5.copy_rates_from_pos(symbol, timeframe, 0, count)
     if rates is None:
         print("❌ Failed to fetch price data.")
         return None
     df = pd.DataFrame(rates)
     df["time"] = pd.to_datetime(df["time"], unit="s")
+    df.set_index("time", inplace=True)
     return df
 
 
