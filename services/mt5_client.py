@@ -49,13 +49,17 @@ def place_order(symbol, signal, volume, sl_points, tp_points=0):
         print("❌ Failed to retrieve current price.")
         return None
 
-    order_type = mt5.ORDER_TYPE_BUY if signal == "BUY" else mt5.ORDER_TYPE_SELL
-    price = tick.ask if signal == "BUY" else tick.bid
-    sl = price - sl_points if signal == "BUY" else price + sl_points
-    tp = price + tp_points if signal == "BUY" else price - tp_points
-
     symbol_info = mt5.symbol_info(symbol)
-    digits = symbol_info.digits if symbol_info else 2
+    if not symbol_info:
+        print("❌ Failed to retrieve symbol info.")
+        return None
+
+    digits = symbol_info.digits
+    price = tick.ask if signal == "BUY" else tick.bid
+    order_type = mt5.ORDER_TYPE_BUY if signal == "BUY" else mt5.ORDER_TYPE_SELL
+
+    sl_price = price - sl_points if signal == "BUY" else price + sl_points
+    tp_price = price + tp_points if signal == "BUY" else price - tp_points
 
     request = {
         "action": mt5.TRADE_ACTION_DEAL,
@@ -63,8 +67,8 @@ def place_order(symbol, signal, volume, sl_points, tp_points=0):
         "volume": volume,
         "type": order_type,
         "price": round(price, digits),
-        "sl": round(sl, digits),
-        "tp": round(tp, digits),
+        "sl": round(sl_price, digits),
+        "tp": round(tp_price, digits),
         "deviation": 20,
         "magic": 234000,
         "comment": "Supertrend Signal Entry",
@@ -73,12 +77,14 @@ def place_order(symbol, signal, volume, sl_points, tp_points=0):
     }
 
     result = mt5.order_send(request)
+
     if result.retcode == mt5.TRADE_RETCODE_DONE:
         print(
-            f"✅ {signal} order placed at {round(price, digits)} | SL: {round(sl, digits)}"
+            f"✅ {signal} order placed | Price: {round(price, digits)} | SL: {round(sl_price, digits)} | TP: {round(tp_price, digits)} | Volume: {volume:.2f}"
         )
     else:
         print(f"❌ Order failed: {result.retcode} - {result.comment}")
+
     return result
 
 
@@ -136,7 +142,9 @@ def close_all_trades(opposite_type, symbol="XAUUSD"):
         result = mt5.order_send(request)
         if result.retcode == mt5.TRADE_RETCODE_DONE:
             print(f"✅ Closed position #{pos.ticket} at price {price}")
-            close_trade(order_id=pos.ticket, close_price=price, reason="Mass Close - New Signal")
+            close_trade(
+                order_id=pos.ticket, close_price=price, reason="Mass Close - New Signal"
+            )
         else:
             print(f"❌ Failed to close position #{pos.ticket}: {result.comment}")
 
@@ -180,7 +188,11 @@ def close_one_trade(symbol, target_type):
         result = mt5.order_send(request)
         if result.retcode == mt5.TRADE_RETCODE_DONE:
             print(f"✅ Closed position #{pos.ticket} at {price:.2f}")
-            close_trade(order_id=pos.ticket, close_price=price, reason="Trend Reversal - Signal Flip")
+            close_trade(
+                order_id=pos.ticket,
+                close_price=price,
+                reason="Trend Reversal - Signal Flip",
+            )
             return True
         else:
             print(f"❌ Failed to close #{pos.ticket}: {result.comment}")

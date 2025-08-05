@@ -1,24 +1,42 @@
 import csv
 import os
+import time
 from datetime import datetime
 
 LOG_FILE = "trades_log.csv"
+
 LOG_FIELDS = [
     "timestamp",
     "order_type",
     "price",
     "stop_loss",
+    "take_profit",
     "lot_size",
     "order_id",
     "balance",
-    "status",  # OPEN or CLOSED
-    "close_price",  # set when CLOSED
-    "close_time",  # set when CLOSED
-    "profit_loss",  # new field
-    "close_reason",  # new field
+    "status",           # OPEN or CLOSED
+    "close_price",      # Set when CLOSED
+    "close_time",       # Set when CLOSED
+    "profit_loss",      # Calculated on close
+    "close_reason",     # e.g. TP Hit, Signal Flip
 ]
 
+# Retry decorator for file writing (handles locked file errors)
+def retry_on_file_lock(func):
+    def wrapper(*args, **kwargs):
+        retries = 5
+        delay = 1  # seconds
+        for attempt in range(retries):
+            try:
+                return func(*args, **kwargs)
+            except PermissionError:
+                print(f"🔒 File locked. Retrying ({attempt + 1}/{retries})...")
+                time.sleep(delay)
+        print("❌ Failed to access log file after multiple attempts.")
+    return wrapper
 
+
+@retry_on_file_lock
 def initialize_log():
     if not os.path.exists(LOG_FILE):
         with open(LOG_FILE, mode="w", newline="") as file:
@@ -26,27 +44,32 @@ def initialize_log():
             writer.writeheader()
 
 
-def log_trade(order_type, price, stop_loss, lot_size, order_id=None, balance=None):
+@retry_on_file_lock
+def log_trade(order_type, price, stop_loss, take_profit, lot_size, order_id, balance):
     initialize_log()
+
+    entry = {
+        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "order_type": order_type,
+        "price": round(price, 2),
+        "stop_loss": round(stop_loss, 2),
+        "take_profit": round(take_profit, 2),
+        "lot_size": round(lot_size, 2),
+        "order_id": order_id,
+        "balance": round(balance, 2),
+        "status": "OPEN",
+        "close_price": "",
+        "close_time": "",
+        "profit_loss": "",
+        "close_reason": "",
+    }
+
     with open(LOG_FILE, mode="a", newline="") as file:
         writer = csv.DictWriter(file, fieldnames=LOG_FIELDS)
-        writer.writerow(
-            {
-                "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                "order_type": order_type,
-                "price": round(price, 3),
-                "stop_loss": round(stop_loss, 3) if stop_loss else "",
-                "lot_size": lot_size,
-                "order_id": order_id or "",
-                "balance": round(balance, 3) if balance else "",
-                "status": "OPEN",
-                "close_price": "",
-                "close_time": "",
-                "close_reason": "",
-            }
-        )
+        writer.writerow(entry)
 
 
+@retry_on_file_lock
 def close_trade(order_id, close_price, reason="Closed"):
     if not os.path.exists(LOG_FILE):
         print("⚠️ Log file not found. Cannot update trade.")
@@ -63,7 +86,7 @@ def close_trade(order_id, close_price, reason="Closed"):
                 lot_size = float(row["lot_size"])
                 order_type = row["order_type"]
 
-                # Calculate profit/loss in USD (XAUUSD: 1 lot = 100 oz)
+                # Calculate profit/loss for XAUUSD (1 lot = 100 oz)
                 if order_type == "BUY":
                     profit_loss = (close_price - entry_price) * 100 * lot_size
                 else:

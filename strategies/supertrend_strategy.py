@@ -2,16 +2,17 @@ import pandas as pd
 
 
 def calculate_atr(df, period):
+    """Calculate Average True Range (ATR) for volatility measurement."""
     high_low = df["high"] - df["low"]
     high_close = (df["high"] - df["close"].shift()).abs()
     low_close = (df["low"] - df["close"].shift()).abs()
 
     tr = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
-    atr = tr.rolling(window=period).mean()
-    return atr
+    return tr.rolling(window=period).mean()
 
 
 def calculate_supertrend(df, period=10, multiplier=3):
+    """Calculate SuperTrend indicator."""
     atr = calculate_atr(df, period)
     hl2 = (df["high"] + df["low"]) / 2
     upperband = hl2 + (multiplier * atr)
@@ -21,21 +22,22 @@ def calculate_supertrend(df, period=10, multiplier=3):
     in_uptrend = True
 
     for i in range(1, len(df)):
-        if df["close"][i] > upperband[i - 1]:
+        if df["close"].iloc[i] > upperband.iloc[i - 1]:
             in_uptrend = True
-        elif df["close"][i] < lowerband[i - 1]:
+        elif df["close"].iloc[i] < lowerband.iloc[i - 1]:
             in_uptrend = False
         else:
-            if in_uptrend and lowerband[i] < lowerband[i - 1]:
-                lowerband[i] = lowerband[i - 1]
-            if not in_uptrend and upperband[i] > upperband[i - 1]:
-                upperband[i] = upperband[i - 1]
+            if in_uptrend and lowerband.iloc[i] < lowerband.iloc[i - 1]:
+                lowerband.iloc[i] = lowerband.iloc[i - 1]
+            if not in_uptrend and upperband.iloc[i] > upperband.iloc[i - 1]:
+                upperband.iloc[i] = upperband.iloc[i - 1]
 
         supertrend[i] = in_uptrend
 
     df["supertrend"] = supertrend
     df["supertrend_upper"] = upperband
     df["supertrend_lower"] = lowerband
+    df["atr"] = atr
 
     return df
 
@@ -44,29 +46,66 @@ def calculate_ema(df, period):
     return df["close"].ewm(span=period, adjust=False).mean()
 
 
-def trade_decision(df):
-    df = calculate_supertrend(df)
-    ema5 = calculate_ema(df, 5)
-    ema20 = calculate_ema(df, 20)
+tp_rules = [
+    (2.0, 2.5),
+    (1.5, 2.0),
+    (1.0, 1.5),
+    (0.7, 1.2),
+    (0.0, 1.0),
+]
 
-    latest_close = df["close"].iloc[-1]
-    in_uptrend = df["supertrend"].iloc[-1]
-    ema5_latest = ema5.iloc[-1]
-    ema20_latest = ema20.iloc[-1]
+
+def get_dynamic_tp_multiplier(atr, sl_distance):
+    """Calculate dynamic TP multiplier based on ATR and SL distance."""
+    if sl_distance <= 0:
+        return 1.0
+    ratio = atr / sl_distance
+    for threshold, multiplier in tp_rules:
+        if ratio >= threshold:
+            return multiplier
+    return 1.0
+
+
+def trade_decision(df, atr_period=14):
+    """Make trade decision based on SuperTrend and EMA indicators."""
+    df = calculate_supertrend(df, period=atr_period)
+    df["ema5"] = calculate_ema(df, 5)
+    df["ema20"] = calculate_ema(df, 20)
+
+    if len(df) < atr_period + 2:
+        print("⚠️ Not enough data for ATR-based decision.")
+        return None, None, None
+
+    latest = df.iloc[-1]
+    close_price = latest["close"]
+    ema5 = latest["ema5"]
+    ema20 = latest["ema20"]
+    atr = df["atr"].iloc[-5:].mean()  # smoothed ATR
+    in_uptrend = latest["supertrend"]
 
     print(
-        f"📊 Price: {latest_close:.2f} | EMA5: {ema5_latest:.2f} | EMA20: {ema20_latest:.2f} | Trend: {'UP' if in_uptrend else 'DOWN'}"
+        f"📊 Price: {close_price:.2f} | EMA5: {ema5:.2f} | EMA20: {ema20:.2f} | ATR: {atr:.2f} | Trend: {'UP' if in_uptrend else 'DOWN'}"
     )
 
-    # EMA + Supertrend confirmation
-    if in_uptrend and ema5_latest > ema20_latest:
-        sl = df["supertrend_lower"].iloc[-1]
-        print(f"✅ BUY signal confirmed. Stop loss at {sl:.2f}")
-        return "BUY", sl
-    elif not in_uptrend and ema5_latest < ema20_latest:
-        sl = df["supertrend_upper"].iloc[-1]
-        print(f"✅ SELL signal confirmed. Stop loss at {sl:.2f}")
-        return "SELL", sl
-    else:
-        print("❌ Signal rejected due to EMA mismatch with trend.")
-        return None, None
+    if pd.isna(atr) or atr < 0.1:
+        print("⚠️ ATR not ready or too small. Skipping trade.")
+        return None, None, None
+
+    if in_uptrend and ema5 > ema20:
+        sl_price = latest["supertrend_lower"]
+        sl_distance = close_price - sl_price
+        tp_multiplier = get_dynamic_tp_multiplier(atr, sl_distance)
+        tp_points = tp_multiplier * atr
+        print(f"✅ BUY signal confirmed | SL: {sl_price:.2f} | TP: {tp_points:.2f}")
+        return "BUY", sl_price, tp_points
+
+    elif not in_uptrend and ema5 < ema20:
+        sl_price = latest["supertrend_upper"]
+        sl_distance = sl_price - close_price
+        tp_multiplier = get_dynamic_tp_multiplier(atr, sl_distance)
+        tp_points = tp_multiplier * atr
+        print(f"✅ SELL signal confirmed | SL: {sl_price:.2f} | TP: {tp_points:.2f}")
+        return "SELL", sl_price, tp_points
+
+    print("❌ Signal rejected due to EMA mismatch with trend.")
+    return None, None, None
