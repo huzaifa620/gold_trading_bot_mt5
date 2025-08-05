@@ -16,7 +16,7 @@ def calculate_lot_size(sl_points, risk_dollars=5.0):
     return round(lot, 2)
 
 
-def get_dynamic_min_tp_dollars(atr, volume, factor=1.5, floor=2.0):
+def get_dynamic_min_tp_dollars(atr, volume, factor=0.8, floor=1.5):
     """
     Calculates a dynamic minimum TP value in dollars based on ATR and volume.
     Ensures it's never below a floor (e.g., $2.00).

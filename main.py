@@ -98,7 +98,7 @@ try:
             min_tp_dollars = get_dynamic_min_tp_dollars(latest_atr, volume)
             tp_value = take_profit_points * 100 * volume
 
-            if tp_value < min_tp_dollars:
+            if tp_value < min_tp_dollars and tp_value < 2.0:
                 print(
                     f"⚠️ TP too small (${tp_value:.2f} < ${min_tp_dollars:.2f}). Skipping...",
                 )
