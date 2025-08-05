@@ -54,20 +54,16 @@ try:
         signal, stop_loss_price = trade_decision(df)
 
         if signal and stop_loss_price:
-            opposite_type = (
-                mt5.POSITION_TYPE_SELL if signal == "BUY" else mt5.POSITION_TYPE_BUY
-            )
-            opposite_trades = get_open_positions(symbol=symbol)
+            opposite_type = "SELL" if signal == "BUY" else "BUY"
+            opposite_trades = get_open_positions(symbol=symbol, order_type=opposite_type)
 
-            # Close opposite positions first
-            to_close = [pos for pos in opposite_trades if pos.type == opposite_type]
-            if to_close:
-                print(f"🔁 {len(to_close)} opposite trades found. Closing one...")
-                success = close_one_trade(symbol=symbol, target_type=opposite_type)
+            if opposite_trades:
+                print(f"🔁 {len(opposite_trades)} opposite trades found. Closing one...")
+                success = close_one_trade(symbol=symbol, target_type=opposite_trades[0].type)
                 if not success:
                     print("❌ Failed to close. Retrying in 2s.")
                     time.sleep(2)
-                    close_one_trade(symbol=symbol, target_type=opposite_type)
+                    close_one_trade(symbol=symbol, target_type=opposite_trades[0].type)
                 time.sleep(1)
             else:
                 print("✅ No opposite trades. Proceeding with new order...")
