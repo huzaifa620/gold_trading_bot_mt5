@@ -128,7 +128,7 @@ def trade_decision(df, atr_period=14, adx_threshold=20):
     if in_uptrend and ema5 > ema20:
         sl_price = latest["supertrend_lower"]
         sl_distance = close_price - sl_price
-        tp_multiplier = get_dynamic_tp_multiplier(atr, sl_distance)
+        tp_multiplier = get_dynamic_tp_multiplier(atr, sl_distance) * 1.5
         tp_points = tp_multiplier * atr
         print(f"✅ BUY signal confirmed | SL: {sl_price:.2f} | TP: {tp_points:.2f}")
         return "BUY", sl_price, tp_points
@@ -136,7 +136,7 @@ def trade_decision(df, atr_period=14, adx_threshold=20):
     elif not in_uptrend and ema5 < ema20:
         sl_price = latest["supertrend_upper"]
         sl_distance = sl_price - close_price
-        tp_multiplier = get_dynamic_tp_multiplier(atr, sl_distance)
+        tp_multiplier = get_dynamic_tp_multiplier(atr, sl_distance) * 1.5
         tp_points = tp_multiplier * atr
         print(f"✅ SELL signal confirmed | SL: {sl_price:.2f} | TP: {tp_points:.2f}")
         return "SELL", sl_price, tp_points
