@@ -48,7 +48,7 @@ last_trade_candle_time = load_last_trade_time()
 
 try:
     while True:
-        df = fetch_price_history(symbol, count=100, timeframe=mt5.TIMEFRAME_M5)
+        df = fetch_price_history(symbol, count=100, timeframe=mt5.TIMEFRAME_M1)
         if df is None or df.empty or len(df) < 30:
             print("⚠️ Not enough price data. Retrying in 60s.")
             time.sleep(60)

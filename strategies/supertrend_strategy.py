@@ -66,29 +66,63 @@ def get_dynamic_tp_multiplier(atr, sl_distance):
     return 1.0
 
 
-def trade_decision(df, atr_period=14):
-    """Make trade decision based on SuperTrend and EMA indicators."""
+def calculate_adx(df, period=14):
+    df = df.copy()
+    df["tr"] = df[["high", "low", "close"]].apply(
+        lambda x: max(
+            x["high"] - x["low"],
+            abs(x["high"] - x["close"]),
+            abs(x["low"] - x["close"]),
+        ),
+        axis=1,
+    )
+
+    df["+dm"] = df["high"].diff()
+    df["-dm"] = df["low"].diff()
+
+    df["+dm"] = df["+dm"].where((df["+dm"] > df["-dm"]) & (df["+dm"] > 0), 0.0)
+    df["-dm"] = df["-dm"].where((df["-dm"] > df["+dm"]) & (df["-dm"] > 0), 0.0)
+
+    atr = df["tr"].rolling(window=period).mean()
+    plus_di = 100 * (df["+dm"].rolling(window=period).mean() / atr)
+    minus_di = 100 * (df["-dm"].rolling(window=period).mean() / atr)
+    dx = 100 * (abs(plus_di - minus_di) / (plus_di + minus_di)).fillna(0)
+
+    adx = dx.rolling(window=period).mean()
+    df["adx"] = adx
+
+    return df
+
+
+def trade_decision(df, atr_period=14, adx_threshold=20):
+    """Make trade decision based on SuperTrend, EMA, and ADX filter."""
     df = calculate_supertrend(df, period=atr_period)
     df["ema5"] = calculate_ema(df, 5)
     df["ema20"] = calculate_ema(df, 20)
+    df = calculate_adx(df, period=atr_period)
 
     if len(df) < atr_period + 2:
-        print("⚠️ Not enough data for ATR-based decision.")
+        print("⚠️ Not enough data for decision.")
         return None, None, None
 
     latest = df.iloc[-1]
     close_price = latest["close"]
     ema5 = latest["ema5"]
     ema20 = latest["ema20"]
-    atr = df["atr"].iloc[-5:].mean()  # smoothed ATR
+    atr = df["atr"].iloc[-5:].mean()
     in_uptrend = latest["supertrend"]
+    adx = latest["adx"]
 
     print(
-        f"📊 Price: {close_price:.2f} | EMA5: {ema5:.2f} | EMA20: {ema20:.2f} | ATR: {atr:.2f} | Trend: {'UP' if in_uptrend else 'DOWN'}"
+        f"📊 Price: {close_price:.2f} | EMA5: {ema5:.2f} | EMA20: {ema20:.2f} | ATR: {atr:.2f} | ADX: {adx:.2f} | Trend: {'UP' if in_uptrend else 'DOWN'}"
     )
 
     if pd.isna(atr) or atr < 0.1:
-        print("⚠️ ATR not ready or too small. Skipping trade.")
+        print("⚠️ ATR too small. Skipping trade.")
+        return None, None, None
+
+    if pd.isna(adx) or adx < adx_threshold:
+        print(f"🚫 ADX too low ({adx:.2f}) — skipping due to sideways market.")
         return None, None, None
 
     if in_uptrend and ema5 > ema20:
