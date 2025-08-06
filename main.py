@@ -14,6 +14,7 @@ from services.mt5_client import (
     get_open_positions,
 )
 from strategies.supertrend_strategy import trade_decision
+from utils.early_exit import should_exit_early
 from utils.risk import calculate_lot_size, get_dynamic_min_tp_dollars
 from utils.trade_logger import log_trade
 from utils.trade_tracker import load_last_trade_time, save_last_trade_time
@@ -42,13 +43,23 @@ if not account:
 balance = account["balance"]
 print(f"📈 Account Balance: ${balance:.2f}")
 
-current_trend = None
-MIN_TP_DOLLARS = 5  # Minimum TP in USD
 last_trade_candle_time = load_last_trade_time()
 
 try:
     while True:
-        df = fetch_price_history(symbol, count=300, timeframe=mt5.TIMEFRAME_M1)
+        # 🛑 Check all open trades for early exit
+        open_positions = get_open_positions(symbol=symbol)
+        for pos in open_positions:
+            trade_type = "BUY" if pos.type == mt5.ORDER_TYPE_BUY else "SELL"
+            if should_exit_early(
+                symbol, trade_type, bars=3, timeframe=mt5.TIMEFRAME_M1
+            ):
+                print(
+                    f"⚠️ Early exit triggered: {trade_type} position moving against us (3 candles + EMA5 cross)"
+                )
+                close_one_trade(symbol=symbol, target_type=pos.type)
+
+        df = fetch_price_history(symbol, count=300, timeframe=mt5.TIMEFRAME_M5)
         if df is None or df.empty or len(df) < 30:
             print("⚠️ Not enough price data. Retrying in 60s.")
             time.sleep(60)
@@ -130,6 +141,7 @@ try:
                 )
                 last_trade_candle_time = latest_candle_time
                 save_last_trade_time(latest_candle_time)
+
             else:
                 print(
                     f"❌ Order placement failed: {result.retcode} - {result.comment if result else 'No result'}"
