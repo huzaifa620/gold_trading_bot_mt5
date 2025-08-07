@@ -125,6 +125,11 @@ def trade_decision(df, atr_period=14, adx_threshold=20):
         print(f"🚫 ADX too low ({adx:.2f}) — skipping due to sideways market.")
         return None, None, None
 
+    adx_vals = df["adx"].iloc[-3:]
+    if adx_vals.diff().iloc[1:].mean() < 0:
+        print("📉 ADX slope negative. Trend weakening — skipping trade.")
+        return None, None, None
+
     if in_uptrend and ema5 > ema20:
         sl_price = latest["supertrend_lower"]
         sl_distance = close_price - sl_price

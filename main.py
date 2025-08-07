@@ -53,10 +53,16 @@ try:
             trade_type = "BUY" if pos.type == mt5.ORDER_TYPE_BUY else "SELL"
 
             # Check if price has moved too far against us
-            unrealized_loss = (pos.price_open - pos.price_current) * pos.volume * 100 if trade_type == "BUY" else (pos.price_current - pos.price_open) * pos.volume * 100
+            unrealized_loss = (
+                (pos.price_open - pos.price_current) * pos.volume * 100
+                if trade_type == "BUY"
+                else (pos.price_current - pos.price_open) * pos.volume * 100
+            )
 
             if unrealized_loss < -5.0:  # Loss worse than $5
-                if should_exit_early(symbol, trade_type, bars=5, timeframe=mt5.TIMEFRAME_M1):
+                if should_exit_early(
+                    symbol, trade_type, bars=5, timeframe=mt5.TIMEFRAME_M1
+                ):
                     print(
                         f"⚠️ Early exit triggered: {trade_type} position moving against us (5 candles confirmed) | Loss: ${unrealized_loss:.2f}"
                     )
