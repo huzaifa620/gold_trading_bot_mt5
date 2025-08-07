@@ -14,12 +14,13 @@ LOG_FIELDS = [
     "lot_size",
     "order_id",
     "balance",
-    "status",           # OPEN or CLOSED
-    "close_price",      # Set when CLOSED
-    "close_time",       # Set when CLOSED
-    "profit_loss",      # Calculated on close
-    "close_reason",     # e.g. TP Hit, Signal Flip
+    "status",  # OPEN or CLOSED
+    "close_price",  # Set when CLOSED
+    "close_time",  # Set when CLOSED
+    "profit_loss",  # Calculated on close
+    "close_reason",  # e.g. TP Hit, Signal Flip
 ]
+
 
 # Retry decorator for file writing (handles locked file errors)
 def retry_on_file_lock(func):
@@ -30,9 +31,10 @@ def retry_on_file_lock(func):
             try:
                 return func(*args, **kwargs)
             except PermissionError:
-                print(f"🔒 File locked. Retrying ({attempt + 1}/{retries})...")
+                log(f"🔒 File locked. Retrying ({attempt + 1}/{retries})...")
                 time.sleep(delay)
-        print("❌ Failed to access log file after multiple attempts.")
+        log("❌ Failed to access log file after multiple attempts.")
+
     return wrapper
 
 
@@ -72,7 +74,7 @@ def log_trade(order_type, price, stop_loss, take_profit, lot_size, order_id, bal
 @retry_on_file_lock
 def close_trade(order_id, close_price, reason="Closed"):
     if not os.path.exists(LOG_FILE):
-        print("⚠️ Log file not found. Cannot update trade.")
+        log("⚠️ Log file not found. Cannot update trade.")
         return
 
     updated = False
@@ -106,8 +108,18 @@ def close_trade(order_id, close_price, reason="Closed"):
             writer = csv.DictWriter(file, fieldnames=LOG_FIELDS)
             writer.writeheader()
             writer.writerows(rows)
-        print(
+        log(
             f"📘 Trade {order_id} closed. P/L: {round(profit_loss, 2)} USD | Reason: {reason}"
         )
     else:
-        print(f"⚠️ Trade {order_id} not found or already closed.")
+        log(f"⚠️ Trade {order_id} not found or already closed.")
+
+
+def log(message: str, save_to_file=True):
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    full_msg = f"[{timestamp}] {message}"
+    print(full_msg)
+    if save_to_file:
+        with open("gold_bot.log", "a", encoding="utf-8") as f:
+            f.write(full_msg + "\n")
+

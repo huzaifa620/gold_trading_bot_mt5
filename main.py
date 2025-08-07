@@ -16,7 +16,7 @@ from services.mt5_client import (
 from strategies.supertrend_strategy import trade_decision
 from utils.early_exit import should_exit_early
 from utils.risk import calculate_lot_size, get_dynamic_min_tp_dollars
-from utils.trade_logger import log_trade
+from utils.trade_logger import log, log_trade
 from utils.trade_tracker import load_last_trade_time, save_last_trade_time
 
 load_dotenv()
@@ -26,22 +26,22 @@ SERVER = os.getenv("SERVER")
 
 symbol = "XAUUSD"
 
-print("\n🚀 Starting Gold Bot...")
-print("-" * 60)
+log("\n🚀 Starting Gold Bot...")
+log("-" * 60)
 
 # Initialize MT5 connection
 if not initialize_mt5(login=LOGIN, password=PASSWORD, server=SERVER):
-    print("❌ MT5 initialization failed.")
+    log("❌ MT5 initialization failed.")
     exit(1)
 
 account = get_account_info()
 if not account:
-    print("❌ Could not fetch account info.")
+    log("❌ Could not fetch account info.")
     shutdown_mt5()
     exit(1)
 
 balance = account["balance"]
-print(f"📈 Account Balance: ${balance:.2f}")
+log(f"📈 Account Balance: ${balance:.2f}")
 
 last_trade_candle_time = load_last_trade_time()
 
@@ -63,20 +63,20 @@ try:
                 if should_exit_early(
                     symbol, trade_type, bars=5, timeframe=mt5.TIMEFRAME_M1
                 ):
-                    print(
+                    log(
                         f"⚠️ Early exit triggered: {trade_type} position moving against us (5 candles confirmed) | Loss: ${unrealized_loss:.2f}"
                     )
                     close_one_trade(symbol=symbol, target_type=pos.type)
 
         df = fetch_price_history(symbol, count=150, timeframe=mt5.TIMEFRAME_M5)
         if df is None or df.empty or len(df) < 30:
-            print("⚠️ Not enough price data. Retrying in 60s.")
+            log("⚠️ Not enough price data. Retrying in 60s.")
             time.sleep(60)
             continue
 
         latest_candle_time = df.index[-1].to_pydatetime()
         if last_trade_candle_time == latest_candle_time:
-            print(f"⏩ Already traded on candle at {latest_candle_time}. Skipping.\n")
+            log(f"⏩ Already traded on candle at {latest_candle_time}. Skipping.\n")
             time.sleep(60)
             continue
 
@@ -90,26 +90,24 @@ try:
             )
 
             if opposite_trades:
-                print(
-                    f"🔁 {len(opposite_trades)} opposite trades found. Closing one..."
-                )
+                log(f"🔁 {len(opposite_trades)} opposite trades found. Closing one...")
                 success = close_one_trade(
                     symbol=symbol, target_type=opposite_trades[0].type
                 )
                 if not success:
-                    print("❌ Failed to close. Retrying in 2s.")
+                    log("❌ Failed to close. Retrying in 2s.")
                     time.sleep(2)
                     close_one_trade(symbol=symbol, target_type=opposite_trades[0].type)
                 time.sleep(1)
             else:
-                print("✅ No opposite trades. Proceeding with new order...")
+                log("✅ No opposite trades. Proceeding with new order...")
 
             sl_distance = abs(current_price - stop_loss_price)
             sl_distance = max(sl_distance, 1.0)  # Enforce minimum SL
 
             volume = calculate_lot_size(sl_points=sl_distance)
             if volume <= 0:
-                print("⚠️ Invalid lot size. Skipping.")
+                log("⚠️ Invalid lot size. Skipping.")
                 time.sleep(60)
                 continue
 
@@ -119,14 +117,14 @@ try:
             tp_value = take_profit_points * 100 * volume
 
             if tp_value < min_tp_dollars and tp_value < 2.0:
-                print(
+                log(
                     f"⚠️ TP too small (${tp_value:.2f} < ${min_tp_dollars:.2f}). Skipping...",
                 )
-                print("-" * 50)
+                log("-" * 50)
                 time.sleep(60)
                 continue
 
-            print(
+            log(
                 f"📥 Placing {signal} order | Price: {current_price:.2f} | SL: {stop_loss_price:.2f} | TP: {take_profit_points:.2f} | Vol: {volume:.2f}"
             )
             result = place_order(
@@ -138,7 +136,7 @@ try:
             )
 
             if result and result.retcode == mt5.TRADE_RETCODE_DONE:
-                print(f"✅ Order placed successfully: #{result.order}")
+                log(f"✅ Order placed successfully: #{result.order}")
                 log_trade(
                     order_type=signal,
                     price=current_price,
@@ -152,18 +150,18 @@ try:
                 save_last_trade_time(latest_candle_time)
 
             else:
-                print(
+                log(
                     f"❌ Order placement failed: {result.retcode} - {result.comment if result else 'No result'}"
                 )
         else:
-            print("⏱ No valid signal this cycle.")
+            log("⏱ No valid signal this cycle.")
 
-        print("🕒 Waiting 60s for next check...")
-        print("-" * 50 + "\n")
+        log("🕒 Waiting 60s for next check...")
+        log("-" * 50 + "\n")
         time.sleep(60)
 
 except KeyboardInterrupt:
-    print("🛑 Bot stopped manually.")
+    log("🛑 Bot stopped manually.")
 finally:
     shutdown_mt5()
-    print("🔒 Disconnected from MT5.")
+    log("🔒 Disconnected from MT5.")

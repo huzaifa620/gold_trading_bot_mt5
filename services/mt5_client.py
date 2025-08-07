@@ -1,42 +1,42 @@
 import MetaTrader5 as mt5
 import pandas as pd
 
-from utils.trade_logger import close_trade
+from utils.trade_logger import close_trade, log
 
 
 def initialize_mt5(login, password, server):
     mt5.shutdown()
     if not mt5.initialize():
-        print("❌ Failed to initialize MetaTrader 5.")
+        log("❌ Failed to initialize MetaTrader 5.")
         return False
     authorized = mt5.login(login, password=password, server=server)
     if authorized:
-        print("✅ Successfully connected to MT5 account.")
+        log("✅ Successfully connected to MT5 account.")
     else:
-        print("❌ Login failed. Check credentials.")
+        log("❌ Login failed. Check credentials.")
     return authorized
 
 
 def shutdown_mt5():
     mt5.shutdown()
-    print("🔒 MT5 connection closed.")
+    log("🔒 MT5 connection closed.")
 
 
 def get_account_info():
     acc = mt5.account_info()
     if acc:
-        print(
+        log(
             f"💰 Account Info - Balance: {acc.balance}, Equity: {acc.equity}, Leverage: {acc.leverage}"
         )
         return {"balance": acc.balance, "equity": acc.equity, "leverage": acc.leverage}
-    print("❌ Could not retrieve account info.")
+    log("❌ Could not retrieve account info.")
     return None
 
 
 def fetch_price_history(symbol, count=300, timeframe=mt5.TIMEFRAME_M5):
     rates = mt5.copy_rates_from_pos(symbol, timeframe, 0, count)
     if rates is None:
-        print("❌ Failed to fetch price data.")
+        log("❌ Failed to fetch price data.")
         return None
     df = pd.DataFrame(rates)
     df["time"] = pd.to_datetime(df["time"], unit="s")
@@ -47,12 +47,12 @@ def fetch_price_history(symbol, count=300, timeframe=mt5.TIMEFRAME_M5):
 def place_order(symbol, signal, volume, sl_points, tp_points=0):
     tick = mt5.symbol_info_tick(symbol)
     if not tick:
-        print("❌ Failed to retrieve current price.")
+        log("❌ Failed to retrieve current price.")
         return None
 
     symbol_info = mt5.symbol_info(symbol)
     if not symbol_info:
-        print("❌ Failed to retrieve symbol info.")
+        log("❌ Failed to retrieve symbol info.")
         return None
 
     digits = symbol_info.digits
@@ -80,11 +80,11 @@ def place_order(symbol, signal, volume, sl_points, tp_points=0):
     result = mt5.order_send(request)
 
     if result.retcode == mt5.TRADE_RETCODE_DONE:
-        print(
+        log(
             f"✅ {signal} order placed | Price: {round(price, digits)} | SL: {round(sl_price, digits)} | TP: {round(tp_price, digits)} | Volume: {volume:.2f}"
         )
     else:
-        print(f"❌ Order failed: {result.retcode} - {result.comment}")
+        log(f"❌ Order failed: {result.retcode} - {result.comment}")
 
     return result
 
@@ -92,7 +92,7 @@ def place_order(symbol, signal, volume, sl_points, tp_points=0):
 def get_open_positions(symbol, order_type=None):
     positions = mt5.positions_get(symbol=symbol)
     if positions is None:
-        print("⚠️ No open positions found.")
+        log("⚠️ No open positions found.")
         return []
 
     if order_type:
@@ -100,10 +100,10 @@ def get_open_positions(symbol, order_type=None):
             mt5.POSITION_TYPE_BUY if order_type == "BUY" else mt5.POSITION_TYPE_SELL
         )
         filtered = [p for p in positions if p.type == target_type]
-        print(f"🔍 Found {len(filtered)} open {order_type} positions for {symbol}.")
+        log(f"🔍 Found {len(filtered)} open {order_type} positions for {symbol}.")
         return filtered
 
-    print(f"🔍 Found {len(positions)} total open positions for {symbol}.")
+    log(f"🔍 Found {len(positions)} total open positions for {symbol}.")
     return positions
 
 
@@ -114,7 +114,7 @@ def close_all_trades(opposite_type, symbol="XAUUSD"):
     )
     positions = mt5.positions_get(symbol=symbol)
     if not positions:
-        print(f"📭 No open positions to close for {symbol}")
+        log(f"📭 No open positions to close for {symbol}")
         return
 
     for pos in positions:
@@ -142,18 +142,18 @@ def close_all_trades(opposite_type, symbol="XAUUSD"):
 
         result = mt5.order_send(request)
         if result.retcode == mt5.TRADE_RETCODE_DONE:
-            print(f"✅ Closed position #{pos.ticket} at price {price}")
+            log(f"✅ Closed position #{pos.ticket} at price {price}")
             close_trade(
                 order_id=pos.ticket, close_price=price, reason="Mass Close - New Signal"
             )
         else:
-            print(f"❌ Failed to close position #{pos.ticket}: {result.comment}")
+            log(f"❌ Failed to close position #{pos.ticket}: {result.comment}")
 
 
 def close_one_trade(symbol, target_type):
     positions = mt5.positions_get(symbol=symbol)
     if not positions:
-        print("⚠️ No open positions found.")
+        log("⚠️ No open positions found.")
         return False
 
     for pos in positions:
@@ -188,7 +188,7 @@ def close_one_trade(symbol, target_type):
 
         result = mt5.order_send(request)
         if result.retcode == mt5.TRADE_RETCODE_DONE:
-            print(f"✅ Closed position #{pos.ticket} at {price:.2f}")
+            log(f"✅ Closed position #{pos.ticket} at {price:.2f}")
             close_trade(
                 order_id=pos.ticket,
                 close_price=price,
@@ -196,8 +196,8 @@ def close_one_trade(symbol, target_type):
             )
             return True
         else:
-            print(f"❌ Failed to close #{pos.ticket}: {result.comment}")
+            log(f"❌ Failed to close #{pos.ticket}: {result.comment}")
             return False
 
-    print("⚠️ No matching trade to close.")
+    log("⚠️ No matching trade to close.")
     return False

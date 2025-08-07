@@ -1,4 +1,5 @@
 import pandas as pd
+from utils.trade_logger import log
 
 
 def calculate_atr(df, period):
@@ -94,7 +95,7 @@ def calculate_adx(df, period=14):
     return df
 
 
-def trade_decision(df, atr_period=14, adx_threshold=20):
+def trade_decision(df, atr_period=14, adx_threshold=10):
     """Make trade decision based on SuperTrend, EMA, and ADX filter."""
     df = calculate_supertrend(df, period=atr_period)
     df["ema5"] = calculate_ema(df, 5)
@@ -102,7 +103,7 @@ def trade_decision(df, atr_period=14, adx_threshold=20):
     df = calculate_adx(df, period=atr_period)
 
     if len(df) < atr_period + 2:
-        print("⚠️ Not enough data for decision.")
+        log("⚠️ Not enough data for decision.")
         return None, None, None
 
     latest = df.iloc[-1]
@@ -113,21 +114,21 @@ def trade_decision(df, atr_period=14, adx_threshold=20):
     in_uptrend = latest["supertrend"]
     adx = latest["adx"]
 
-    print(
+    log(
         f"📊 Price: {close_price:.2f} | EMA5: {ema5:.2f} | EMA20: {ema20:.2f} | ATR: {atr:.2f} | ADX: {adx:.2f} | Trend: {'UP' if in_uptrend else 'DOWN'}"
     )
 
     if pd.isna(atr) or atr < 0.1:
-        print("⚠️ ATR too small. Skipping trade.")
+        log("⚠️ ATR too small. Skipping trade.")
         return None, None, None
 
     if pd.isna(adx) or adx < adx_threshold:
-        print(f"🚫 ADX too low ({adx:.2f}) — skipping due to sideways market.")
+        log(f"🚫 ADX too low ({adx:.2f}) — skipping due to sideways market.")
         return None, None, None
 
     adx_vals = df["adx"].iloc[-3:]
     if adx_vals.diff().iloc[1:].mean() < 0:
-        print("📉 ADX slope negative. Trend weakening — skipping trade.")
+        log("📉 ADX slope negative. Trend weakening — skipping trade.")
         return None, None, None
 
     if in_uptrend and ema5 > ema20:
@@ -135,7 +136,7 @@ def trade_decision(df, atr_period=14, adx_threshold=20):
         sl_distance = close_price - sl_price
         tp_multiplier = get_dynamic_tp_multiplier(atr, sl_distance) * 1.5
         tp_points = tp_multiplier * atr
-        print(f"✅ BUY signal confirmed | SL: {sl_price:.2f} | TP: {tp_points:.2f}")
+        log(f"✅ BUY signal confirmed | SL: {sl_price:.2f} | TP: {tp_points:.2f}")
         return "BUY", sl_price, tp_points
 
     elif not in_uptrend and ema5 < ema20:
@@ -143,8 +144,8 @@ def trade_decision(df, atr_period=14, adx_threshold=20):
         sl_distance = sl_price - close_price
         tp_multiplier = get_dynamic_tp_multiplier(atr, sl_distance) * 1.5
         tp_points = tp_multiplier * atr
-        print(f"✅ SELL signal confirmed | SL: {sl_price:.2f} | TP: {tp_points:.2f}")
+        log(f"✅ SELL signal confirmed | SL: {sl_price:.2f} | TP: {tp_points:.2f}")
         return "SELL", sl_price, tp_points
 
-    print("❌ Signal rejected due to EMA mismatch with trend.")
+    log("❌ Signal rejected due to EMA mismatch with trend.")
     return None, None, None
