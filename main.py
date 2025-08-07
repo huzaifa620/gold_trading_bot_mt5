@@ -51,15 +51,18 @@ try:
         open_positions = get_open_positions(symbol=symbol)
         for pos in open_positions:
             trade_type = "BUY" if pos.type == mt5.ORDER_TYPE_BUY else "SELL"
-            if should_exit_early(
-                symbol, trade_type, bars=3, timeframe=mt5.TIMEFRAME_M1
-            ):
-                print(
-                    f"⚠️ Early exit triggered: {trade_type} position moving against us (3 candles + EMA5 cross)"
-                )
-                close_one_trade(symbol=symbol, target_type=pos.type)
 
-        df = fetch_price_history(symbol, count=300, timeframe=mt5.TIMEFRAME_M5)
+            # Check if price has moved too far against us
+            unrealized_loss = (pos.price_open - pos.price_current) * pos.volume * 100 if trade_type == "BUY" else (pos.price_current - pos.price_open) * pos.volume * 100
+
+            if unrealized_loss < -5.0:  # Loss worse than $5
+                if should_exit_early(symbol, trade_type, bars=5, timeframe=mt5.TIMEFRAME_M1):
+                    print(
+                        f"⚠️ Early exit triggered: {trade_type} position moving against us (5 candles confirmed) | Loss: ${unrealized_loss:.2f}"
+                    )
+                    close_one_trade(symbol=symbol, target_type=pos.type)
+
+        df = fetch_price_history(symbol, count=150, timeframe=mt5.TIMEFRAME_M5)
         if df is None or df.empty or len(df) < 30:
             print("⚠️ Not enough price data. Retrying in 60s.")
             time.sleep(60)
