@@ -3,6 +3,7 @@ import os
 import MetaTrader5 as mt5
 from dotenv import load_dotenv
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from services.mt5_client import (
     fetch_price_history,
@@ -19,7 +20,7 @@ from utils.risk import calculate_lot_size, get_dynamic_min_tp_dollars
 from utils.trade_logger import log, log_trade
 from utils.trade_tracker import load_last_trade_time, save_last_trade_time
 
-load_dotenv()
+load_dotenv(override=True)
 LOGIN = int(os.getenv("LOGIN"))
 PASSWORD = os.getenv("PASSWORD")
 SERVER = os.getenv("SERVER")
@@ -52,21 +53,46 @@ try:
         for pos in open_positions:
             trade_type = "BUY" if pos.type == mt5.ORDER_TYPE_BUY else "SELL"
 
-            # Check if price has moved too far against us
-            unrealized_loss = (
-                (pos.price_open - pos.price_current) * pos.volume * 100
-                if trade_type == "BUY"
-                else (pos.price_current - pos.price_open) * pos.volume * 100
-            )
+            # 🛑 Check for early loss exit
+            if trade_type == "BUY":
+                unrealized_loss = (
+                    (pos.price_open - pos.price_current) * pos.volume * 100
+                )
+            else:  # SELL
+                unrealized_loss = (
+                    (pos.price_current - pos.price_open) * pos.volume * 100
+                )
 
-            if unrealized_loss < -5.0:  # Loss worse than $5
+            # If loss exceeds $5
+            if unrealized_loss > 5.0:
                 if should_exit_early(
                     symbol, trade_type, bars=5, timeframe=mt5.TIMEFRAME_M1
                 ):
                     log(
-                        f"⚠️ Early exit triggered: {trade_type} position moving against us (5 candles confirmed) | Loss: ${unrealized_loss:.2f}"
+                        f"⚠️ Early exit triggered: {trade_type} position moving against us "
+                        f"(5 candles confirmed) | Loss: ${unrealized_loss:.2f}"
                     )
                     close_one_trade(symbol=symbol, target_type=pos.type)
+
+            # # ✅ Check if held over 1 hour and in profit
+            # open_time = datetime.fromtimestamp(pos.time)
+            # current_time = datetime.now()
+            # open_duration = current_time - open_time
+            # print(f"Open Time: {open_time} | Current Time: {current_time} | Duration: {open_duration}")
+
+            # # Check if the trade has been open for over 1 hour
+            # if open_duration >= timedelta(hours=1):
+            #     unrealized_profit = (
+            #         (pos.price_current - pos.price_open) * pos.volume * 100
+            #         if trade_type == "BUY"
+            #         else (pos.price_open - pos.price_current) * pos.volume * 100
+            #     )
+            #     print(unrealized_profit, "---------")
+            #     if unrealized_profit > 0:
+            #         log(
+            #             f"💰 Closing profitable {trade_type} trade held for over 1 hour | Profit: ${unrealized_profit:.2f}"
+            #         )
+            #         close_one_trade(symbol=symbol, target_type=pos.type)
 
         df = fetch_price_history(symbol, count=150, timeframe=mt5.TIMEFRAME_M5)
         if df is None or df.empty or len(df) < 30:
@@ -125,7 +151,7 @@ try:
                 continue
 
             log(
-                f"📥 Placing {signal} order | Price: {current_price:.2f} | SL: {stop_loss_price:.2f} | TP: {take_profit_points:.2f} | Vol: {volume:.2f}"
+                f"📥 Placing {signal} order | Price: {current_price:.2f} | SL: {stop_loss_price:.2f} | TP: {current_price + take_profit_points:.2f} | Vol: {volume:.2f}"
             )
             result = place_order(
                 symbol,

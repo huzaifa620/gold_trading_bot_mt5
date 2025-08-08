@@ -126,26 +126,52 @@ def trade_decision(df, atr_period=14, adx_threshold=10):
         log(f"🚫 ADX too low ({adx:.2f}) — skipping due to sideways market.")
         return None, None, None
 
-    adx_vals = df["adx"].iloc[-3:]
-    if adx_vals.diff().iloc[1:].mean() < 0:
+    adx_vals = df["adx"].iloc[-5:]
+    adx_slope = adx_vals.iloc[-1] - adx_vals.iloc[0]
+    log(f"ADX Slope: {adx_slope:.2f}")
+
+    # If the slope is negative, it indicates a weakening trend
+    if adx_slope < 0:
         log("📉 ADX slope negative. Trend weakening — skipping trade.")
         return None, None, None
 
-    if in_uptrend and ema5 > ema20:
+    ema_gap_percent = ((ema5 - ema20) / ema20) * 100
+    ema_slope = ema5 - df["ema5"].iloc[-2]  # Last candle change
+
+    log(f"EMA Gap: {ema_gap_percent:.4f}% | EMA Slope: {ema_slope:.4f}")
+
+    if in_uptrend and ema_gap_percent > -0.05 and ema_slope > 0:
         sl_price = latest["supertrend_lower"]
         sl_distance = close_price - sl_price
         tp_multiplier = get_dynamic_tp_multiplier(atr, sl_distance) * 1.5
         tp_points = tp_multiplier * atr
-        log(f"✅ BUY signal confirmed | SL: {sl_price:.2f} | TP: {tp_points:.2f}")
+        log(f"✅ BUY signal (relaxed EMA) | SL: {sl_price:.2f} | TP: {tp_points:.2f}")
         return "BUY", sl_price, tp_points
 
-    elif not in_uptrend and ema5 < ema20:
+    elif not in_uptrend and ema_gap_percent < 0.05 and ema_slope < 0:
         sl_price = latest["supertrend_upper"]
         sl_distance = sl_price - close_price
         tp_multiplier = get_dynamic_tp_multiplier(atr, sl_distance) * 1.5
         tp_points = tp_multiplier * atr
-        log(f"✅ SELL signal confirmed | SL: {sl_price:.2f} | TP: {tp_points:.2f}")
+        log(f"✅ SELL signal (relaxed EMA) | SL: {sl_price:.2f} | TP: {tp_points:.2f}")
         return "SELL", sl_price, tp_points
+
+
+    # if in_uptrend and ema5 > ema20:
+    #     sl_price = latest["supertrend_lower"]
+    #     sl_distance = close_price - sl_price
+    #     tp_multiplier = get_dynamic_tp_multiplier(atr, sl_distance) * 1.5
+    #     tp_points = tp_multiplier * atr
+    #     log(f"✅ BUY signal confirmed | SL: {sl_price:.2f} | TP: {tp_points:.2f}")
+    #     return "BUY", sl_price, tp_points
+
+    # elif not in_uptrend and ema5 < ema20:
+    #     sl_price = latest["supertrend_upper"]
+    #     sl_distance = sl_price - close_price
+    #     tp_multiplier = get_dynamic_tp_multiplier(atr, sl_distance) * 1.5
+    #     tp_points = tp_multiplier * atr
+    #     log(f"✅ SELL signal confirmed | SL: {sl_price:.2f} | TP: {tp_points:.2f}")
+    #     return "SELL", sl_price, tp_points
 
     log("❌ Signal rejected due to EMA mismatch with trend.")
     return None, None, None

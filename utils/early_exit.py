@@ -4,7 +4,7 @@ import MetaTrader5 as mt5
 
 def should_exit_early(symbol, direction, bars=3, timeframe=mt5.TIMEFRAME_M1):
     # Fetch candles for analysis
-    rates = mt5.copy_rates_from_pos(symbol, timeframe, 0, bars + 10)
+    rates = mt5.copy_rates_from_pos(symbol, timeframe, 0, bars + 5)
     if rates is None or len(rates) < bars + 5:
         return False
 

@@ -1,6 +1,7 @@
 import MetaTrader5 as mt5
 import pandas as pd
 
+from utils.telegram_alert import send_telegram_alert
 from utils.trade_logger import close_trade, log
 
 
@@ -80,9 +81,9 @@ def place_order(symbol, signal, volume, sl_points, tp_points=0):
     result = mt5.order_send(request)
 
     if result.retcode == mt5.TRADE_RETCODE_DONE:
-        log(
-            f"✅ {signal} order placed | Price: {round(price, digits)} | SL: {round(sl_price, digits)} | TP: {round(tp_price, digits)} | Volume: {volume:.2f}"
-        )
+        order_message = f"✅ New {signal} order placed on {symbol} | Volume: {volume} | SL: {sl_price}"
+        log(order_message)
+        send_telegram_alert(order_message)
     else:
         log(f"❌ Order failed: {result.retcode} - {result.comment}")
 
@@ -188,12 +189,14 @@ def close_one_trade(symbol, target_type):
 
         result = mt5.order_send(request)
         if result.retcode == mt5.TRADE_RETCODE_DONE:
-            log(f"✅ Closed position #{pos.ticket} at {price:.2f}")
             close_trade(
                 order_id=pos.ticket,
                 close_price=price,
                 reason="Trend Reversal - Signal Flip",
             )
+            order_message = f"✅ Closed position #{pos.ticket} at {price:.2f}"
+            log(order_message)
+            send_telegram_alert(order_message)
             return True
         else:
             log(f"❌ Failed to close #{pos.ticket}: {result.comment}")
